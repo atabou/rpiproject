@@ -10,7 +10,7 @@ Setup UDP socket
 UDP_LOCAL_IP = "0.0.0.0"
 UDP_LOCAL_PORT = 4210
 
-UDP_TARGET_IP = "169.234.9.205"
+UDP_TARGET_IP = "192.168.86.29"
 UDP_TARGET_PORT = 4210
 
 udp = None
@@ -105,16 +105,15 @@ def w():
     # Check for udp
 
     try:
+
         data, _ = udp.recvfrom(1024)
-
-        reading = data.decode().split(".")[0]
-
+ 
         TIME_STAMP = time.time()
 
-        if int(reading) < TRESHOLD / 3:
+        if int(data) < TRESHOLD / 3:
             return low
 
-        elif int(reading) < 2 * TRESHOLD / 3:
+        elif int(data) < 2 * TRESHOLD / 3:
             return med
 
         else:
@@ -149,21 +148,21 @@ def wg():
 
     # Check for button press
     if PRESSED:
+        
         PRESSED = False
         return press
 
     # Check for udp
     try:
-        data, _ = udp.recvfrom(1024)
-
-        reading = data.decode().split(".")[0]
+        
+        data, _ = udp.recvfrom(1024)        
 
         TIME_STAMP = time.time()
 
-        if int(reading) < TRESHOLD / 3:
+        if int(data) < TRESHOLD / 3:
             return low
 
-        elif int(reading) < 2 * TRESHOLD / 3:
+        elif int(data) < 2 * TRESHOLD / 3:
             return med
 
         else:
@@ -204,14 +203,12 @@ def wgy():
     try:
         data, _ = udp.recvfrom(1024)
 
-        reading = data.decode().split(".")[0]
-
         TIME_STAMP = time.time()
 
-        if int(reading) < TRESHOLD / 3:
+        if int(data) < TRESHOLD / 3:
             return low
 
-        elif int(reading) < 2 * TRESHOLD / 3:
+        elif int(data) < 2 * TRESHOLD / 3:
             return med
 
         else:
@@ -237,7 +234,7 @@ def wgyr():
     global TIME_LIMIT
     global TRESHOLD
     
-    # Turn WGYR on
+    # Turn WGYR onq
     GPIO.output(WLED, GPIO.HIGH)
     GPIO.output(GLED, GPIO.HIGH)
     GPIO.output(YLED, GPIO.HIGH)
@@ -252,14 +249,12 @@ def wgyr():
     try:
         data, _ = udp.recvfrom(1024)
 
-        reading = data.decode().split(".")[0]
-
         TIME_STAMP = time.time()
 
-        if int(reading) < TRESHOLD / 3:
+        if int(data) < TRESHOLD / 3:
             return low
 
-        elif int(reading) < 2 * TRESHOLD / 3:
+        elif int(data) < 2 * TRESHOLD / 3:
             return med
 
         else:
