@@ -73,12 +73,6 @@ def get_data():
        
         # Get the values for the graph
 
-        # graph_time = list(map(lambda packet: packet['Timestamp'] - current_time, recent))
-
-        # graph_value = [recent[i]['Data']['Value'][0] for i in range(len(recent))]
-
-        #graph_master = [recent[i]['Master'] for i in range(len(recent))]
-
         points = [(recent[i]['Timestamp'] - current_time, recent[i]['Data']['Value'][0], COLOR[recent[i]['Master']]) for i in range(len(recent))]
 
         segments = []
@@ -98,6 +92,7 @@ def get_data():
         # Get an array of booleans to indicate when a master has changed
 
         verifier = [True]
+
         verifier = verifier + [recent[i]['Master'] != recent[i-1]['Master'] for i in range(1, len(recent) - 1)]
        
         if len(recent) > 1:
@@ -117,6 +112,8 @@ def get_data():
 
         # Get the total time each node has spent as master
 
+        bar_values = []
+
         bar_masters = []
         bar_timeasmaster = []
         bar_colors = []
@@ -125,22 +122,21 @@ def get_data():
 
             pos = -1
 
-            for i in range(len(bar_masters)):
-                if bar_masters[i] == packet['Master']:
+            for i in range(len(bar_values)):
+                if bar_values[i][0] == packet['Master']:
                     pos = i
                     break
 
             if pos != -1:
-                bar_timeasmaster[pos] += delta
+                
+                bar_values[pos][1] += delta
             else:
-                bar_masters.append(packet['Master'])
-                bar_timeasmaster.append(delta)
-                bar_colors.append(COLOR[packet['Master']])
-
-       
+                
+                bar_values.append([packet['Master'], delta, COLOR[packet['Master']]])
+                
+        bar_values.sort(key=lambda tup: tup[0])
         
-        
-        return (segments, (bar_masters, bar_timeasmaster, bar_colors))
+        return (segments, list(zip(*bar_values)))
     
     return (LineCollection([]), ([], [], []))
 
