@@ -48,6 +48,7 @@ logString = ""
 BUFFER = []
 AVAILABLE_COLORS = ['r', 'g', 'b', 'y', 'm']
 COLOR = {}
+MUTEX = threading.Lock()
 
 fig, (graph, bar) = plt.subplots(nrows=1, ncols=2)
 
@@ -60,20 +61,24 @@ def get_data():
     print(time.time() - time1)
 
     time1 = time.time()
-    
+   
+    MUTEX.acquire()
+   
     if len(BUFFER) > 0:
 
         # Get the current time
 
         current_time = time.time()
 
-        # Filter to get last 30s of data
+        # Filter to get last 30s of data 
         
         recent = list(filter(lambda packet: packet['Timestamp'] - current_time >= -30, BUFFER))
-       
+
+        colormap = COLOR
+        
         # Get the values for the graph
 
-        points = [(recent[i]['Timestamp'] - current_time, recent[i]['Data']['Value'][0], COLOR[recent[i]['Master']]) for i in range(len(recent))]
+        points = [(recent[i]['Timestamp'] - current_time, recent[i]['Data']['Value'][0], colormap[recent[i]['Master']]) for i in range(len(recent))]
 
         segments = []
         
@@ -124,15 +129,18 @@ def get_data():
                     break
 
             if pos != -1:
-                
                 bar_values[pos][1] += delta
+
             else:
-                
-                bar_values.append([packet['Master'], delta, COLOR[packet['Master']]])
-                
+                bar_values.append([packet['Master'], delta, colormap[packet['Master']]])
+
         bar_values.sort(key=lambda tup: tup[0])
         
+        MUTEX.release()
+
         return (segments, list(zip(*bar_values)))
+    
+    MUTEX.release()
     
     return (LineCollection([]), ([], [], []))
 
@@ -298,8 +306,12 @@ def parseLogPacket(message):
         packet['Data']['isMaster'].append(data[i][1])
         packet['Data']['State'].append(data[i][4])
         packet['Data']['Value'].append(int(data[i][3]))
-     
+    
+    MUTEX.acquire()
+
     BUFFER.append(packet)
+
+    MUTEX.release()
 
     return logString
 
@@ -311,6 +323,7 @@ def setAndReturnSwarmID(incomingID):
     global AVAILABLE_COLORS
 
     for i in range(0, SWARMSIZE):
+        
         if (SWARMSTATUS[i][5] == incomingID):
             return i
 
@@ -319,9 +332,13 @@ def setAndReturnSwarmID(incomingID):
             if (SWARMSTATUS[i][5] == 0):  # not in the system, so put it in
 
                 SWARMSTATUS[i][5] = incomingID
-                
+        
+                MUTEX.acquire()
+
                 COLOR[incomingID] = AVAILABLE_COLORS[0]
                 AVAILABLE_COLORS = AVAILABLE_COLORS[1::]
+
+                MUTEX.release()
 
                 print("incomingID %d " % incomingID)
                 print("assigned #%d" % i)
@@ -375,16 +392,25 @@ def reset_swarm_status():
 
 # Define button interrupt callback function
 
-def button_interrupt(channel):
-   
+def reset_swarm():
+
+    global PRESSED
     global BUFFER
+    global AVAILABLE_COLORS
+    global COLOR
 
     # Flush the socket (remove all pending data) 
     
+    # Reset graphs
+
+    bar.clear()
+
+    graph.clear()
+
     # Reset SWARMSTATUS.
     
     reset_swarm_status()
-
+ 
     # Reset the swarm
 
     SendRESET_SWARM_PACKET(SOCKET)
@@ -395,14 +421,19 @@ def button_interrupt(channel):
 
     # Reset BUFFER.
 
+    MUTEX.acquire()
+
     BUFFER = []
+    AVAILABLE_COLORS = ['r', 'g', 'b', 'y', 'm']
+    COLOR = {}
 
-    # Reset graphs
+    MUTEX.release()
 
-    bar.clear()
-
-    graph.clear()
  
+    # Redefine server logger for the swarm
+
+    SendDEFINE_SERVER_LOGGER_PACKET(SOCKET)
+    
     # Turn the light on for 3 seconds
 
     GPIO.output(LED, GPIO.HIGH)
@@ -410,10 +441,12 @@ def button_interrupt(channel):
     time.sleep(3)
     
     GPIO.output(LED, GPIO.LOW)
-    
-    # Redefine server logger for the swarm
 
-    SendDEFINE_SERVER_LOGGER_PACKET(SOCKET)
+
+def button_interrupt(channel):
+    
+    global PRESSED
+    PRESSED = True
 
 
 def setup():
@@ -478,6 +511,10 @@ def loop():
     global PRESSED
 
     while(1):
+
+        if PRESSED == True:
+            reset_swarm()
+            PRESSED = False
 
         # receive datclient (data, addr)
         d = SOCKET.recvfrom(1024)
