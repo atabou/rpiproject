@@ -48,27 +48,15 @@ BUFFER = []
 
 fig, (graph, bar) = plt.subplots(nrows=1, ncols=2)
 
-def get_bar_chart_values(df):
-    pass
-    """
-    df1 = df.sort_values(['Timestamp'])
-    df1['Changed'] = df1['Master'].shift(1) != df1['Master']
-    df1 = df1[df1['Changed'] == True]
-    df1['Delta'] = (df1['Timestamp'].shift(-1) - df1['Timestamp']).fillna(0)
-    df1.iloc[-1, df1.columns.get_loc('Delta')] = 17 - df1.iloc[-1, df1.columns.get_loc('Timestamp')]
-    df1 = df1.groupby(by=['Master'])['Delta'].sum().reset_index(name='Percentage')
-    sum = df1['Percentage'].sum()
-    df1['Percentage'] = 100 * df1['Percentage'] / sum
-
-    return df1
-    """
-
-def get_line_chart_values(df):
-    pass
-
+time1 = 0
 
 def get_data():
 
+    global time1
+    
+    print(time.time() - time1)
+    time1 = time.time()
+    
     if len(BUFFER) > 0:
 
         # Get the current time
@@ -77,15 +65,15 @@ def get_data():
 
         # Filter to get last 30s of data
         
-        recent = filter(lambda packet: current_time - packet['Timestamp'] >= -30, BUFFER)
-        
+        recent = list(filter(lambda packet: packet['Timestamp'] - current_time >= -30, BUFFER))
+       
         # Get the values for the graph
 
-        graph_time = map(lambda packet: current_time - packet['Timestamp'], recent)
+        graph_time = list(map(lambda packet: packet['Timestamp'] - current_time, recent))
 
-        graph_value = [recent['Data']['Value'][0] for i in range(len(recent))]
+        graph_value = [recent[i]['Data']['Value'][0] for i in range(len(recent))]
 
-        graph_master = [recent['Master'] for i in range(len(recent))]
+        graph_master = [recent[i]['Master'] for i in range(len(recent))]
 
         # Get the values for the bar graph
 
@@ -93,7 +81,14 @@ def get_data():
 
         verifier = [True]
         verifier = verifier + [recent[i]['Master'] != recent[i-1]['Master'] for i in range(1, len(recent) - 1)]
-        verifier.append(True)
+       
+        if len(recent) > 1:
+            if recent[-1]['Master'] == recent[-2]['Master']:
+                verifier.append(False)
+            else:
+                verifier.append(True)
+
+        print(verifier)
         
         # Filter out the booleans to only get the moments when the master has changed
 
@@ -124,18 +119,24 @@ def get_data():
                 bar_masters.append(packet['Master'])
                 bar_timeasmaster.append(delta)
 
+        
+        print(bar_masters)
+        print(bar_timeasmaster)
+
         return ((graph_time, graph_value, graph_master), (bar_masters, bar_timeasmaster))
     
     return (([0], [0], [0]), ([0], [0]))
 
+
 def animate(i):
+
 
     global fig
     global graph
     global bar
 
     graph_data, bar_data = get_data()
-    
+
     bar.clear()
     graph.clear()
 
@@ -143,7 +144,8 @@ def animate(i):
     bar.set_xlabel('SwarmID')
     bar.set_ylabel('percentage (%)')
     bar.set_ylim([0, 30])
-    bar.bar(range(1, len(bar_data) + 1), bar_data[1])
+    bar.bar(range(1, len(bar_data[1]) + 1), bar_data[1])
+    bar.set_xticks(range(1, len(bar_data[1]) + 1), bar_data[0])
 
     graph.set_title('Value of the Master (last 30s)')
     graph.set_xlabel('time elapsed (s)')
@@ -271,8 +273,8 @@ def parseLogPacket(message):
     print("logString:", logString)
 
     data = logString.split("|")
-    
-    data = [data[i].split(",") for data in range(len(data))]
+   
+    data = [data[i].split(",") for i in range(len(data))]
 
     packet = {
 
@@ -296,7 +298,7 @@ def parseLogPacket(message):
         packet['Data']['Version'].append(data[i][2])
         packet['Data']['isMaster'].append(data[i][1])
         packet['Data']['State'].append(data[i][4])
-        packet['Data']['Value'].append(data[i][3])
+        packet['Data']['Value'].append(int(data[i][3]))
      
     BUFFER.append(packet)
 
