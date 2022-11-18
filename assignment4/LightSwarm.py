@@ -7,8 +7,8 @@ from netifaces import interfaces, ifaddresses, AF_INET
 
 from socket import socket, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST
 
-import numpy as np
-import pandas as pd
+import threading
+
 from matplotlib import pyplot as plt
 from matplotlib.animation import FuncAnimation
 
@@ -44,13 +44,13 @@ logString = ""
 
 # Graph related definitions
 
-BUFFER = pd.DataFrame(columns=['Timestamp', 'Master', 'Version', 'Length'] + [i for i in range(SWARMSIZE)])
+BUFFER = []
 
-# last_30_s = df[time.time() - df['Timestamp'] >= -30].sort_values(['Timestamp'])
-
+fig, (graph, bar) = plt.subplots(nrows=1, ncols=2)
 
 def get_bar_chart_values(df):
-    
+    pass
+    """
     df1 = df.sort_values(['Timestamp'])
     df1['Changed'] = df1['Master'].shift(1) != df1['Master']
     df1 = df1[df1['Changed'] == True]
@@ -61,28 +61,123 @@ def get_bar_chart_values(df):
     df1['Percentage'] = 100 * df1['Percentage'] / sum
 
     return df1
-
+    """
 
 def get_line_chart_values(df):
     pass
 
-fig, (graph, bar) = plt.subplots(nrows=1, ncols=2)
 
-graph.set_title('Value of the master over the last 30s')
-graph.set_xlabel('time elapsed (s)')
-graph.set_ylabel('value')
+def get_data():
 
-bar.set_title('Share of Time Spent as Master in the Last 30s')
-bar.set_xlabel('SwarmID')
-bar.set_ylabel('percentage (%)')
-bar.set_ylim([0, 100])
-#bar.set_xticks()
+    if len(BUFFER) > 0:
 
-#bar.bar(np.arange(len(vals)), vals)
+        # Get the current time
 
-plt.show()
+        current_time = time.time()
 
-# Raspberry Pi IO and GPIO variable definitions
+        # Filter to get last 30s of data
+        
+        recent = filter(lambda packet: current_time - packet['Timestamp'] >= -30, BUFFER)
+        
+        # Get the values for the graph
+
+        graph_time = map(lambda packet: current_time - packet['Timestamp'], recent)
+
+        graph_value = [recent['Data']['Value'][0] for i in range(len(recent))]
+
+        graph_master = [recent['Master'] for i in range(len(recent))]
+
+        # Get the values for the bar graph
+
+        # Get an array of booleans to indicate when a master has changed
+
+        verifier = [True]
+        verifier = verifier + [recent[i]['Master'] != recent[i-1]['Master'] for i in range(1, len(recent) - 1)]
+        verifier.append(True)
+        
+        # Filter out the booleans to only get the moments when the master has changed
+
+        intervals = [packet for (packet, v) in zip(recent, verifier) if v]
+        
+        # Get the deltas between which the master has changed for each master
+
+        deltas = [(intervals[i], intervals[i + 1]['Timestamp'] - intervals[i]['Timestamp']) for i in range(len(intervals) - 1)]
+        deltas.append((intervals[-1], current_time - intervals[-1]['Timestamp']))
+
+        # Get the total time each node has spent as master
+
+        bar_masters = []
+        bar_timeasmaster = []
+
+        for packet, delta in deltas:
+
+            pos = -1
+
+            for i in range(len(bar_masters)):
+                if bar_masters == packet['Master']:
+                    pos = i
+                    break
+
+            if pos != -1:
+                bar_timeasmaster[pos] += delta
+            else:
+                bar_masters.append(packet['Master'])
+                bar_timeasmaster.append(delta)
+
+        return ((graph_time, graph_value, graph_master), (bar_masters, bar_timeasmaster))
+    
+    return (([0], [0], [0]), ([0], [0]))
+
+def animate(i):
+
+    global fig
+    global graph
+    global bar
+
+    graph_data, bar_data = get_data()
+    
+    bar.clear()
+    graph.clear()
+
+    bar.set_title('Time Spent as Master (Last 30s)')
+    bar.set_xlabel('SwarmID')
+    bar.set_ylabel('percentage (%)')
+    bar.set_ylim([0, 30])
+    bar.bar(range(1, len(bar_data) + 1), bar_data[1])
+
+    graph.set_title('Value of the Master (last 30s)')
+    graph.set_xlabel('time elapsed (s)')
+    graph.set_ylabel('value')
+    graph.set_xlim([-30, 0])
+    graph.set_ylim([0, 1024])
+    graph.plot(graph_data[0], graph_data[1])
+
+
+def animation_thread():
+    
+    global fig
+    global graph
+    global bar
+
+    graph.set_title('Value of the Master (last 30s)')
+    graph.set_xlabel('time elapsed (s)')
+    graph.set_ylabel('value')
+    graph.set_xlim([-30, 0])
+    graph.set_ylim([0, 1024])
+
+    bar.set_title('Time Spent as Master (Last 30s)')
+    bar.set_xlabel('SwarmID')
+    bar.set_ylabel('percentage (%)')
+    bar.set_ylim([0, 30])
+    #bar.set_xticks()
+
+    animation = FuncAnimation(fig, animate, interval=1000)
+
+    #bar.bar(np.arange(len(vals)), vals)
+    plt.tight_layout()
+    plt.show()
+
+    # Raspberry Pi IO and GPIO variable definitions
 
 LED = 38
 BUTTON = 22
@@ -163,16 +258,9 @@ def SendRESET_SWARM_PACKET(s):
 def parseLogPacket(message):
 
     global BUFFER
-
-    parsed_data = { 'Timestamp': time.time() }
- 
-    parsed_data['Master'] = message[2]
+    
     print("Log From SwarmID:", (message[2]))
-
-    parsed_data['Version'] = message[4],
     print("Swarm Software Version:", (message[4]))
-
-    parsed_data['Length'] = message[3]
     print("StringLength:", (message[3]))
 
     logString = ""
@@ -186,20 +274,37 @@ def parseLogPacket(message):
     
     data = [data[i].split(",") for data in range(len(data))]
 
+    packet = {
+
+        'Timestamp': time.time(),
+        'Master': message[2],
+        'Version': message[4],
+        'Length': message[3],
+        'Data': {
+            'Address': [],
+            'Version': [],
+            'isMaster': [],
+            'State': [],
+            'Value': []
+        }
+
+    }
+
     for i in range(len(data)):
         
-        parsed_data['Address' + str(i)] = data[i][5]
-        parsed_data['Version' + str(i)] = data[i][2]
-        parsed_data['State' + str(i)]   = data[i][1]
-        parsed_data['StatStr' + str(i)] = data[i][4]
-        parsed_data['Value' + str(i)]   = data[i][3]
-        
-    BUFFER = pd.concat([BUFFER, pd.DataFrame(parsed_data)])
-    
+        packet['Data']['Address'].append(data[i][5])
+        packet['Data']['Version'].append(data[i][2])
+        packet['Data']['isMaster'].append(data[i][1])
+        packet['Data']['State'].append(data[i][4])
+        packet['Data']['Value'].append(data[i][3])
+     
+    BUFFER.append(packet)
+
     return logString
 
 
 def setAndReturnSwarmID(incomingID):
+    
     global SWARMSTATUS
 
     for i in range(0, SWARMSIZE):
@@ -265,25 +370,30 @@ def button_interrupt(channel):
    
     global BUFFER
 
+    # Flush the socket (remove all pending data) 
+    
     # Reset SWARMSTATUS.
     
     reset_swarm_status()
 
-    # Save BUFFER to file.
-
-    BUFFER.to_csv(f"{time.time()}.csv")
-
-    # Reset BUFFER.
-
-    BUFFER = pd.DataFrame(columns=['Timestamp', 'Master', 'Version', 'Length'] + [i for i in range(SWARMSIZE)])
-
-    # Reset graphs?
-    # Flush the network card 
-
     # Reset the swarm
 
     SendRESET_SWARM_PACKET(SOCKET)
-    
+
+    # Save BUFFER to file.
+
+    data = str(BUFFER)
+
+    # Reset BUFFER.
+
+    BUFFER = []
+
+    # Reset graphs
+
+    bar.clear()
+
+    graph.clear()
+ 
     # Turn the light on for 3 seconds
 
     GPIO.output(LED, GPIO.HIGH)
@@ -344,6 +454,12 @@ def setup():
     # Set the next reset time
 
     RESET_TIME = time.time() + 30.0
+
+    # Initialize Threads
+
+    anim_thread = threading.Thread(target=animation_thread)
+
+    anim_thread.start()
 
 
 def loop():
