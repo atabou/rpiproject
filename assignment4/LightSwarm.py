@@ -113,11 +113,7 @@ def get_data():
         # Get the total time each node has spent as master
 
         bar_values = []
-
-        bar_masters = []
-        bar_timeasmaster = []
-        bar_colors = []
-
+ 
         for packet, delta in deltas:
 
             pos = -1
@@ -262,7 +258,7 @@ def SendRESET_SWARM_PACKET(s):
 def parseLogPacket(message):
 
     global BUFFER
-    
+   
     print("Log From SwarmID:", (message[2]))
     print("Swarm Software Version:", (message[4]))
     print("StringLength:", (message[3]))
@@ -273,6 +269,7 @@ def parseLogPacket(message):
         logString = logString + chr((message[i+5]))
  
     print("logString:", logString)
+    print()
 
     data = logString.split("|")
    
@@ -328,6 +325,7 @@ def setAndReturnSwarmID(incomingID):
 
                 print("incomingID %d " % incomingID)
                 print("assigned #%d" % i)
+                print()
                 
                 return i
 
@@ -351,6 +349,7 @@ def setAndReturnSwarmID(incomingID):
     SWARMSTATUS[oldSwarmID][5] = incomingID
     # the rest will be filled in by Light Packet Receive
     print("oldSwarmID %i" % oldSwarmID)
+    print()
 
     return oldSwarmID
 
