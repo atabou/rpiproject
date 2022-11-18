@@ -10,6 +10,7 @@ from socket import socket, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST
 import threading
 
 from matplotlib import pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.animation import FuncAnimation
 
 """
@@ -45,6 +46,8 @@ logString = ""
 # Graph related definitions
 
 BUFFER = []
+AVAILABLE_COLORS = ['r', 'g', 'b', 'y', 'm']
+COLOR = {}
 
 fig, (graph, bar) = plt.subplots(nrows=1, ncols=2)
 
@@ -55,6 +58,7 @@ def get_data():
     global time1
     
     print(time.time() - time1)
+
     time1 = time.time()
     
     if len(BUFFER) > 0:
@@ -69,11 +73,25 @@ def get_data():
        
         # Get the values for the graph
 
-        graph_time = list(map(lambda packet: packet['Timestamp'] - current_time, recent))
+        # graph_time = list(map(lambda packet: packet['Timestamp'] - current_time, recent))
 
-        graph_value = [recent[i]['Data']['Value'][0] for i in range(len(recent))]
+        # graph_value = [recent[i]['Data']['Value'][0] for i in range(len(recent))]
 
-        graph_master = [recent[i]['Master'] for i in range(len(recent))]
+        #graph_master = [recent[i]['Master'] for i in range(len(recent))]
+
+        points = [(recent[i]['Timestamp'] - current_time, recent[i]['Data']['Value'][0], COLOR[recent[i]['Master']]) for i in range(len(recent))]
+
+        segments = []
+        
+        colors = []
+
+        for i in range(len(points) - 1):
+            
+            segments.append(((points[i][0], points[i][1]), (points[i+1][0], points[i+1][1])))
+            
+            colors.append(points[i][2])
+
+        segments = LineCollection(segments, colors=colors)
 
         # Get the values for the bar graph
 
@@ -87,9 +105,7 @@ def get_data():
                 verifier.append(False)
             else:
                 verifier.append(True)
-
-        print(verifier)
-        
+ 
         # Filter out the booleans to only get the moments when the master has changed
 
         intervals = [packet for (packet, v) in zip(recent, verifier) if v]
@@ -103,13 +119,14 @@ def get_data():
 
         bar_masters = []
         bar_timeasmaster = []
+        bar_colors = []
 
         for packet, delta in deltas:
 
             pos = -1
 
             for i in range(len(bar_masters)):
-                if bar_masters == packet['Master']:
+                if bar_masters[i] == packet['Master']:
                     pos = i
                     break
 
@@ -118,14 +135,14 @@ def get_data():
             else:
                 bar_masters.append(packet['Master'])
                 bar_timeasmaster.append(delta)
+                bar_colors.append(COLOR[packet['Master']])
 
+       
         
-        print(bar_masters)
-        print(bar_timeasmaster)
-
-        return ((graph_time, graph_value, graph_master), (bar_masters, bar_timeasmaster))
+        
+        return (segments, (bar_masters, bar_timeasmaster, bar_colors))
     
-    return (([0], [0], [0]), ([0], [0]))
+    return (LineCollection([]), ([], [], []))
 
 
 def animate(i):
@@ -135,7 +152,7 @@ def animate(i):
     global graph
     global bar
 
-    graph_data, bar_data = get_data()
+    segments, bar_data = get_data()
 
     bar.clear()
     graph.clear()
@@ -144,7 +161,7 @@ def animate(i):
     bar.set_xlabel('SwarmID')
     bar.set_ylabel('percentage (%)')
     bar.set_ylim([0, 30])
-    bar.bar(range(1, len(bar_data[1]) + 1), bar_data[1])
+    bar.bar(range(1, len(bar_data[1]) + 1), bar_data[1], color=bar_data[2])
     bar.set_xticks(range(1, len(bar_data[1]) + 1), bar_data[0])
 
     graph.set_title('Value of the Master (last 30s)')
@@ -152,7 +169,7 @@ def animate(i):
     graph.set_ylabel('value')
     graph.set_xlim([-30, 0])
     graph.set_ylim([0, 1024])
-    graph.plot(graph_data[0], graph_data[1])
+    graph.add_collection(segments)
 
 
 def animation_thread():
@@ -161,29 +178,18 @@ def animation_thread():
     global graph
     global bar
 
-    graph.set_title('Value of the Master (last 30s)')
-    graph.set_xlabel('time elapsed (s)')
-    graph.set_ylabel('value')
-    graph.set_xlim([-30, 0])
-    graph.set_ylim([0, 1024])
-
-    bar.set_title('Time Spent as Master (Last 30s)')
-    bar.set_xlabel('SwarmID')
-    bar.set_ylabel('percentage (%)')
-    bar.set_ylim([0, 30])
-    #bar.set_xticks()
-
     animation = FuncAnimation(fig, animate, interval=1000)
 
-    #bar.bar(np.arange(len(vals)), vals)
     plt.tight_layout()
     plt.show()
 
-    # Raspberry Pi IO and GPIO variable definitions
+
+# Raspberry Pi IO and GPIO variable definitions
 
 LED = 38
 BUTTON = 22
 PRESSED = False
+
 
 # UDP Commands and packets
 
@@ -308,6 +314,8 @@ def parseLogPacket(message):
 def setAndReturnSwarmID(incomingID):
     
     global SWARMSTATUS
+    global COLOR
+    global AVAILABLE_COLORS
 
     for i in range(0, SWARMSIZE):
         if (SWARMSTATUS[i][5] == incomingID):
@@ -319,6 +327,9 @@ def setAndReturnSwarmID(incomingID):
 
                 SWARMSTATUS[i][5] = incomingID
                 
+                COLOR[incomingID] = AVAILABLE_COLORS[0]
+                AVAILABLE_COLORS = AVAILABLE_COLORS[1::]
+
                 print("incomingID %d " % incomingID)
                 print("assigned #%d" % i)
                 
@@ -327,6 +338,7 @@ def setAndReturnSwarmID(incomingID):
     # if we get here, then we have a new swarm member.
     # Delete the oldest swarm member and add the new one in
     # (this will probably be the one that dropped out)
+    # Here the same color is reassigned to the same node as we have run out of colors.
 
     oldTime = time.time()
 
