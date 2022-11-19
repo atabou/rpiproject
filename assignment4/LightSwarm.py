@@ -1,6 +1,8 @@
 
 from __future__ import print_function
+import os
 import time
+from datetime import datetime
 import RPi.GPIO as GPIO
 
 from netifaces import interfaces, ifaddresses, AF_INET
@@ -54,6 +56,73 @@ fig, (graph, bar) = plt.subplots(nrows=1, ncols=2)
 
 time1 = 0
 
+
+def get_time_as_master(current_time, recent, colormap):
+
+    # Get an array of booleans to indicate when a master has changed
+
+    verifier = [True]
+
+    verifier = verifier + [recent[i]['Master'] != recent[i-1]['Master'] for i in range(1, len(recent) - 1)]
+       
+    if len(recent) > 1:
+
+        if recent[-1]['Master'] == recent[-2]['Master']:
+            verifier.append(False)
+        
+        else:
+            verifier.append(True)
+ 
+    # Filter out the booleans to only get the moments when the master has changed
+
+    intervals = [packet for (packet, v) in zip(recent, verifier) if v]
+        
+    # Get the deltas between which the master has changed for each master
+
+    deltas = [(intervals[i], intervals[i + 1]['Timestamp'] - intervals[i]['Timestamp']) for i in range(len(intervals) - 1)]
+    deltas.append((intervals[-1], current_time - intervals[-1]['Timestamp']))
+
+    # Get the total time each node has spent as master
+
+    bar_values = []
+ 
+    for packet, delta in deltas:
+
+        pos = -1
+
+        for i in range(len(bar_values)):
+            if bar_values[i][0] == packet['Master']:
+                pos = i
+                break
+
+        if pos != -1:
+            bar_values[pos][1] += delta
+        else:
+            bar_values.append([packet['Master'], delta, colormap[packet['Master']]])
+
+    bar_values.sort(key=lambda tup: tup[0])
+
+    return list(zip(*bar_values))
+
+
+def get_line_collection(current_time, recent, colormap):
+
+    points = [(recent[i]['Timestamp'] - current_time, recent[i]['Data']['Value'][0], colormap[recent[i]['Master']]) for i in range(len(recent))]
+
+    segments = []
+        
+    colors = []
+
+    for i in range(len(points) - 1):
+            
+        segments.append(((points[i][0], points[i][1]), (points[i+1][0], points[i+1][1])))
+           
+        colors.append(points[i][2])
+
+    return LineCollection(segments, colors=colors)
+
+
+
 def get_data():
 
     global time1
@@ -70,75 +139,21 @@ def get_data():
 
         current_time = time.time()
 
-        # Filter to get last 30s of data 
+        # Filter to get last 30s of data
         
         recent = list(filter(lambda packet: packet['Timestamp'] - current_time >= -30, BUFFER))
-
-        colormap = COLOR
-        
+ 
         # Get the values for the graph
 
-        points = [(recent[i]['Timestamp'] - current_time, recent[i]['Data']['Value'][0], colormap[recent[i]['Master']]) for i in range(len(recent))]
-
-        segments = []
-        
-        colors = []
-
-        for i in range(len(points) - 1):
-            
-            segments.append(((points[i][0], points[i][1]), (points[i+1][0], points[i+1][1])))
-            
-            colors.append(points[i][2])
-
-        segments = LineCollection(segments, colors=colors)
+        segments = get_line_collection(current_time, recent, COLOR)
 
         # Get the values for the bar graph
 
-        # Get an array of booleans to indicate when a master has changed
-
-        verifier = [True]
-
-        verifier = verifier + [recent[i]['Master'] != recent[i-1]['Master'] for i in range(1, len(recent) - 1)]
-       
-        if len(recent) > 1:
-            if recent[-1]['Master'] == recent[-2]['Master']:
-                verifier.append(False)
-            else:
-                verifier.append(True)
- 
-        # Filter out the booleans to only get the moments when the master has changed
-
-        intervals = [packet for (packet, v) in zip(recent, verifier) if v]
-        
-        # Get the deltas between which the master has changed for each master
-
-        deltas = [(intervals[i], intervals[i + 1]['Timestamp'] - intervals[i]['Timestamp']) for i in range(len(intervals) - 1)]
-        deltas.append((intervals[-1], current_time - intervals[-1]['Timestamp']))
-
-        # Get the total time each node has spent as master
-
-        bar_values = []
- 
-        for packet, delta in deltas:
-
-            pos = -1
-
-            for i in range(len(bar_values)):
-                if bar_values[i][0] == packet['Master']:
-                    pos = i
-                    break
-
-            if pos != -1:
-                bar_values[pos][1] += delta
-
-            else:
-                bar_values.append([packet['Master'], delta, colormap[packet['Master']]])
-
-        bar_values.sort(key=lambda tup: tup[0])
+        bar_values = get_time_as_master(current_time, recent, COLOR)
         
         MUTEX.release()
 
-        return (segments, list(zip(*bar_values)))
+        return (segments, bar_values)
     
     MUTEX.release()
     
@@ -390,6 +405,7 @@ def reset_swarm_status():
         SWARMSTATUS[i][0] = "NP"
         SWARMSTATUS[i][5] = 0
 
+
 # Define button interrupt callback function
 
 def reset_swarm():
@@ -415,9 +431,31 @@ def reset_swarm():
 
     SendRESET_SWARM_PACKET(SOCKET)
 
-    # Save BUFFER to file.
+    # Prepare Data
 
-    data = str(BUFFER)
+    data = ""
+
+    masters, timeasmaster, _ = get_time_as_master(time.time(), BUFFER, COLOR)
+
+    ip_address = os.popen("/usr/sbin/ifconfig wlan0 | /usr/bin/grep -o 'inet [0-9]*\.[0-9]*\.[0-9]*\.[0-9]*' | /usr/bin/grep -o '[0-9].*'").read()
+    ip_address = ip_address[:len(ip_address) - 1:]
+    ip_address = ip_address.split(".")
+
+    for i in range(len(masters)):
+        data += ip_address[0] + '.' + ip_address[1] + '.' + ip_address[2] + '.' + str(masters[i]) + '\n'
+    
+    for i in range(len(masters)):
+        data += str(masters[i]) + ': ' + str(timeasmaster[i]) + 's\n'
+
+    data += str(BUFFER)
+
+    # Save BUFFER to file.
+ 
+    fp = open(str(datetime.now()) + '.log', 'w')
+
+    fp.write(data)
+
+    fp.close()
 
     # Reset BUFFER.
 
