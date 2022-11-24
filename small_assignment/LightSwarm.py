@@ -4,6 +4,7 @@ import os
 import time
 from datetime import datetime
 import RPi.GPIO as GPIO
+import tracemalloc as tm
 
 from netifaces import interfaces, ifaddresses, AF_INET
 
@@ -145,6 +146,8 @@ def get_data():
    
     MUTEX.acquire()
    
+    tm.start()
+    
     if len(BUFFER) > 0:
 
         # Get the current time
@@ -156,8 +159,6 @@ def get_data():
         recent = [(m, t, v) for (m, t, v) in zip(MASTERS, TIMESTAMPS, DATA) if t - current_time >= -30]
 
         masters, timestamps, data = list(zip(*recent))
-
-        # list(filter(lambda packet: packet['Timestamp'] - current_time >= -30, BUFFER))
  
         # Get the values for the graph
 
@@ -171,11 +172,21 @@ def get_data():
     
         print("Get data time:", time.time() - measurement)
 
+        memcurrent, mempeak = tm.get_traced_memory()
+
+        print("Current memory use:", str(memcurrent), "B")
+        print("Peak memory use:", str(mempeak), "B")
+
         return (segments, bar_values)
     
     MUTEX.release()
  
     print("Get data time:", time.time() - measurement)
+
+    memcurrent, mempeak = tm.get_traced_memory()
+
+    print("Current memory use:", str(memcurrent), "B")
+    print("Peak memory use:", str(mempeak), "B")
 
     return (([], []), ([], [], []))
 

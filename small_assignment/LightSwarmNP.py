@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 import RPi.GPIO as GPIO
 import numpy as np
+import tracemalloc as tm
 
 from netifaces import interfaces, ifaddresses, AF_INET
 
@@ -116,6 +117,8 @@ def get_data():
     #timestamps = np.array([t['Timestamp'] for t in BUFFER])
     #data = np.array([d['Data']['Value'][0] for d in BUFFER])
     
+    tm.start()
+    
     measurement = time.time()
     
     if len(BUFFER) > 0:
@@ -147,7 +150,12 @@ def get_data():
         MUTEX.release()
 
         print("Get data time:", time.time() - measurement)
-        
+
+        memcurrent, mempeak = tm.get_traced_memory()
+
+        print("Current memory use:", str(memcurrent), "B")
+        print("Peak memory use:", str(mempeak), "B")
+
         return (segments, bar_values)
     
     # Release the lock
@@ -155,6 +163,11 @@ def get_data():
     MUTEX.release()
     
     print("Get data time:", time.time() - measurement)
+    
+    tm.get_traced_memory()
+    
+    print("Current memory use:", str(memcurrent))
+    print("Peak memory use:", str(mempeak))
     
     return (([], []), ([], [], []))
 
