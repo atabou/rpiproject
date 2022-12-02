@@ -49,6 +49,90 @@ RESET_TIME  = 0
 
 logString = ""
 
+# LED Matrix
+
+SDI   = 11
+RCLK  = 12
+SRCLK = 13
+
+LINE = [0xfe, 0xfd, 0xfb, 0xf7, 0xef, 0xdf, 0xbf, 0x7f]
+
+BARGRAPH = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80]
+
+BARGRAPHMUTEX = threading.Lock()
+
+LAST_LED_MATRIX_UPDATE = time.time()
+
+SUM_OF_LAST_4_SEC = 0
+NUM_OF_LAST_4_SEC = 0
+
+
+def update_led_matrix(value):
+
+    global BARGRAPH
+
+    for i in range(7, 0, -1):
+    
+        BARGRAPH[i] = BARGRAPH[i - 1]
+
+    BARGRAPH[0] = 0x80 >> value
+
+
+        
+def serial_write_to_matrix(data):
+    
+    for bit in range(0, 8):
+    
+        GPIO.output(SDI, 1 & (data >> bit))
+        
+        GPIO.output(SRCLK, GPIO.HIGH)
+        
+        time.sleep(0.000001)
+        
+        GPIO.output(SRCLK, GPIO.LOW)
+
+
+def flush_led_matrix():
+    
+    GPIO.output(RCLK, GPIO.HIGH)
+    
+    time.sleep(0.000001)
+    
+    GPIO.output(RCLK, GPIO.LOW)
+
+
+def flash_led_matrix(bitmap):
+    
+    for i in range(8):
+        
+        #serial_write_to_matrix(LINE[i])
+
+        #serial_write_to_matrix(bitmap[i])
+        
+        #flush_led_matrix()
+
+        print(bin(bitmap[i]))
+    
+    print()
+
+
+def led_matrix_thread():
+
+    global LAST_LED_MATRIX_UPDATE
+
+    LAST_LED_MATRIX_UPDATE = time.time()
+
+    while True:
+
+        BARGRAPHMUTEX.acquire()
+
+        flash_led_matrix(BARGRAPH)
+
+        BARGRAPHMUTEX.release()
+
+        time.sleep(1)
+
+
 # Graph related definitions
 
 MASTERS = np.array([])
@@ -105,7 +189,6 @@ def get_line(current_time, masters, timestamps, data, colormap):
 
 
 def get_data():
-
 
     # Acquire the lock so that no one can write to the saved data
    
@@ -253,6 +336,9 @@ def parseLogPacket(message):
     global MASTERS
     global TIMESTAMPS
     global DATA
+    global LAST_LED_MATRIX_UPDATE
+    global SUM_OF_LAST_4_SEC
+    global NUM_OF_LAST_4_SEC
    
     logString = ""
 
@@ -286,16 +372,42 @@ def parseLogPacket(message):
         packet['Data']['isMaster'].append(data[i][1])
         packet['Data']['State'].append(data[i][4])
         packet['Data']['Value'].append(int(data[i][3]))
-    
+
+
     MUTEX.acquire()
 
     BUFFER.append(packet)
     
     MASTERS = np.concatenate((MASTERS, np.array([message[2]])))
     TIMESTAMPS = np.concatenate((TIMESTAMPS, np.array([time.time()])))
-    DATA = np.concatenate((DATA, np.array([int(data[0][3])])))
+    DATA = np.concatenate((DATA, np.array([int(data[0][3])]))) 
 
     MUTEX.release()
+
+
+    BARGRAPHMUTEX.acquire()
+
+    if time.time() < LAST_LED_MATRIX_UPDATE + 4:
+        
+        SUM_OF_LAST_4_SEC += int(data[0][3])
+        
+        NUM_OF_LAST_4_SEC += 1
+
+    elif NUM_OF_LAST_4_SEC > 0:
+
+        avg4s = int(8 * (SUM_OF_LAST_4_SEC / NUM_OF_LAST_4_SEC) / 1024)
+
+        print(avg4s)
+
+        update_led_matrix(avg4s)
+
+        SUM_OF_LAST_4_SEC = 0
+        NUM_OF_LAST_4_SEC = 0
+
+        LAST_LED_MATRIX_UPDATE = time.time()
+
+    BARGRAPHMUTEX.release()
+
 
     return logString
 
@@ -383,8 +495,9 @@ def reset_swarm():
     global BUFFER
     global AVAILABLE_COLORS
     global COLOR
+    global BARGRAPH
 
-    # Flush the socket (remove all pending data) 
+    # Flush the socket (remove all pending data)
     
     # Reset graphs
 
@@ -435,6 +548,12 @@ def reset_swarm():
     COLOR = {}
 
     MUTEX.release()
+
+    BARGRAPHMUTEX.acquire()
+    
+    BARGRAPH = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80]
+    
+    BARGRAPHMUTEX.release()
 
  
     # Redefine server logger for the swarm
@@ -500,6 +619,18 @@ def setup():
 
     GPIO.output(LED, GPIO.LOW)
 
+    # Initialize the LED Matrix pins.
+
+    GPIO.setup(SDI, GPIO.OUT)
+    GPIO.setup(RCLK, GPIO.OUT)
+    GPIO.setup(SRCLK, GPIO.OUT)
+    
+    # Set the LED Matrix pins low
+
+    GPIO.output(SDI, GPIO.LOW)
+    GPIO.output(RCLK, GPIO.LOW)
+    GPIO.output(SRCLK, GPIO.LOW)
+
     # Set the next reset time
 
     RESET_TIME = time.time() + 300.0
@@ -507,8 +638,10 @@ def setup():
     # Initialize Threads
 
     http_thread = threading.Thread(target=http_loop)
+    led_thread = threading.Thread(target=led_matrix_thread)
 
     http_thread.start()
+    led_thread.start()
 
 
 def loop():
