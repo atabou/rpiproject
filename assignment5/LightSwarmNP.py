@@ -14,11 +14,6 @@ from socket import socket, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST
 
 import threading
 
-from matplotlib import pyplot as plt
-from matplotlib.collections import LineCollection
-from matplotlib.animation import FuncAnimation
-
-
 """
 
 GLOBAL VARIABLE DEFINITIONS
@@ -44,7 +39,7 @@ LOG_TO_SERVER_PACKET        = 5
 # Swarm variable definitions
 
 SWARMSTATUS = None
-SWARMSIZE   = 5
+SWARMSIZE   = 6
 RESET_TIME  = 0
 
 logString = ""
@@ -57,7 +52,7 @@ SRCLK = 13
 
 LINE = [0xfe, 0xfd, 0xfb, 0xf7, 0xef, 0xdf, 0xbf, 0x7f]
 
-BARGRAPH = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80]
+BARGRAPH = [0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 
 BARGRAPHMUTEX = threading.Lock()
 
@@ -71,11 +66,11 @@ def update_led_matrix(value):
 
     global BARGRAPH
 
-    for i in range(7, 0, -1):
-    
-        BARGRAPH[i] = BARGRAPH[i - 1]
+    for i in range(8):
 
-    BARGRAPH[0] = 0x80 >> value
+        BARGRAPH[i] = BARGRAPH[i] >> 1
+
+    BARGRAPH[value] = 0x80 | BARGRAPH[value]
 
 
         
@@ -86,10 +81,11 @@ def serial_write_to_matrix(data):
         GPIO.output(SDI, 1 & (data >> bit))
         
         GPIO.output(SRCLK, GPIO.HIGH)
-        
+    
         time.sleep(0.000001)
-        
+    
         GPIO.output(SRCLK, GPIO.LOW)
+        
 
 
 def flush_led_matrix():
@@ -105,11 +101,13 @@ def flash_led_matrix(bitmap):
     
     for i in range(8):
         
-        #serial_write_to_matrix(LINE[i])
+        serial_write_to_matrix(LINE[i])
 
-        #serial_write_to_matrix(bitmap[i])
+        serial_write_to_matrix(bitmap[i])
         
-        #flush_led_matrix()
+        flush_led_matrix()
+
+        time.sleep(0.000001)
 
         print(bin(bitmap[i]))
     
@@ -130,7 +128,7 @@ def led_matrix_thread():
 
         BARGRAPHMUTEX.release()
 
-        time.sleep(1)
+        time.sleep(0.000001)
 
 
 # Graph related definitions
@@ -140,11 +138,9 @@ TIMESTAMPS = np.array([])
 DATA = np.array([])
 
 BUFFER = []
-AVAILABLE_COLORS = ['red', 'green', 'blue', 'yellow', 'black']
+AVAILABLE_COLORS = ['red', 'green', 'blue', 'yellow', 'magenta', 'cyan']
 COLOR = {}
 MUTEX = threading.Lock()
-
-fig, (graph, bar) = plt.subplots(nrows=1, ncols=2)
 
 
 def get_time_as_master(current_time, masters, timestamps, colormap):
@@ -544,7 +540,7 @@ def reset_swarm():
     MUTEX.acquire()
 
     BUFFER = []
-    AVAILABLE_COLORS = ['red', 'green', 'blue', 'yellow', 'black']
+    AVAILABLE_COLORS = ['red', 'green', 'blue', 'yellow', 'magenta', 'cyan']
     COLOR = {}
 
     MUTEX.release()
