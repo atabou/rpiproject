@@ -109,10 +109,6 @@ def flash_led_matrix(bitmap):
 
         time.sleep(0.000001)
 
-        print(bin(bitmap[i]))
-    
-    print()
-
 
 def led_matrix_thread():
 
@@ -391,7 +387,7 @@ def parseLogPacket(message):
 
     elif NUM_OF_LAST_4_SEC > 0:
 
-        avg4s = int(8 * (SUM_OF_LAST_4_SEC / NUM_OF_LAST_4_SEC) / 1024)
+        avg4s = int(7 * (SUM_OF_LAST_4_SEC / NUM_OF_LAST_4_SEC) / 1024)
 
         print(avg4s)
 
@@ -489,18 +485,15 @@ def reset_swarm():
 
     global PRESSED
     global BUFFER
+    global MASTERS
+    global TIMESTAMPS
+    global DATA
     global AVAILABLE_COLORS
     global COLOR
     global BARGRAPH
 
     # Flush the socket (remove all pending data)
     
-    # Reset graphs
-
-    bar.clear()
-
-    graph.clear()
-
     # Reset SWARMSTATUS.
     
     reset_swarm_status()
@@ -540,6 +533,9 @@ def reset_swarm():
     MUTEX.acquire()
 
     BUFFER = []
+    MASTERS = []
+    TIMESTAMPS = []
+    DATA = []
     AVAILABLE_COLORS = ['red', 'green', 'blue', 'yellow', 'magenta', 'cyan']
     COLOR = {}
 
@@ -547,7 +543,7 @@ def reset_swarm():
 
     BARGRAPHMUTEX.acquire()
     
-    BARGRAPH = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80]
+    BARGRAPH = [0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
     
     BARGRAPHMUTEX.release()
 
